@@ -10,46 +10,36 @@ CREATE TABLE q7 (
 -- Do this for each of the views that define your intermediate steps.
 -- (But give them better names!) The IF EXISTS avoids generating an error
 -- the first time this file is imported.
-DROP VIEW IF EXISTS groups_graders CASCADE;
-DROP VIEW IF EXISTS num_assigns CASCADE;
+DROP VIEW IF EXISTS all_students CASCADE;
+DROP VIEW IF EXISTS all_students_assigned CASCADE;
+DROP VIEW IF EXISTS graded_every_student CASCADE;
 
 -- Define views for your intermediate steps here:
--- The groups and their graders
-CREATE VIEW groups_graders AS
-SELECT Assignment.assignment_id, AssignmentGroup.group_id, Grader.username
-FROM (Assignment JOIN AssignmentGroup on assignment.assignment_id = AssignmentGroup.assignment_id) JOIN Grader ON assignmentGroup.group_id = Grader.group_id;
+Create View all_students AS
+select username
+from MarkusUser
+Where type = 'student';
 
+Create View all_students_assigned AS
+select g.username as g_name, s.username as s_name, s.group_id
+From Grader g
+JOIN Membership s
+ON g.group_id = s.group_id;
 
--- Number of assignments with graders declared:
-CREATE VIEW num_assigns AS
-SELECT count (distinct assignment.assignment_id) as num
-FROM Assignment JOIN AssignmentGroup on assignment.assignment_id = AssignmentGroup.assignment_id;
-
--- Assigned to mark every Assignment (First Condition)
-CREATE VIEW assigns_marker AS
-select username as grader
-FROM groups_graders , num_assigns
-GROUP BY username, num
-HAVING count(distinct assignment_id) = num;
-
-
--- Every student in groups
-CREATE VIEW students AS
-select membership.username, membership.group_id, groups_graders.username as graders, assignment_id 
-from (markususer LEFT JOIN Membership ON markususer.username = membership.username) LEFT JOIN groups_graders ON membership.group_id = groups_graders.group_id 
-where type = 'student';
-
-
--- graders that graded every student in at least one assignment
-CREATE VIEW all_markers AS
-select s1.graders as grader
-from students as s1 JOIN students as s2 ON s1.username = s2.username
-WHERE  s1.graders = s2.graders
-GROUP BY s1.graders
-HAVING count(distinct s1.username) = (select count(distinct username) from students);
-
+Create View graded_every_student AS
+Select Distinct A1.g_name
+From all_students_assigned A1
+Where not EXISTS(
+	select s.username
+	from all_students s
+	Where not EXISTS(
+		select 1 
+		from all_students_assigned A2
+		where a2.s_name = s.username and A1.g_name = A2.g_name
+	)
+);
 
 -- Your query that answers the question goes below the "insert into" line:
-INSERT INTO q7(
-	(select * from assigns_marker) INTERSECT (select * from all_markers)
-);
+INSERT INTO q7 (grader)
+Select g_name
+from graded_every_student;
