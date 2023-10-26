@@ -1,0 +1,69 @@
+Table: MarkusUser
+
+    username (varchar(25) PRIMARY KEY)
+    surname (varchar(15) NOT NULL)
+    firstname (varchar(15) NOT NULL)
+    type (usertype NOT NULL)
+
+Table: Assignment
+
+    assignment_id (integer PRIMARY KEY)
+    description (varchar(100) NOT NULL)
+    due_date (timestamp NOT NULL)
+    group_min (positiveInt NOT NULL)
+    group_max (positiveInt NOT NULL)
+
+Table: Required
+
+    assignment_id (integer REFERENCES Assignment ON DELETE CASCADE)
+    file_name (varchar(25))
+    PRIMARY KEY (assignment_id, file_name)
+
+Table: AssignmentGroup
+
+    group_id (bigint PRIMARY KEY DEFAULT nextval('group_id_seq'))
+    assignment_id (integer REFERENCES Assignment ON DELETE CASCADE)
+    repo (varchar(100) NOT NULL)
+
+Table: Membership
+
+    username (varchar(25) REFERENCES MarkusUser ON DELETE CASCADE)
+    group_id (integer REFERENCES AssignmentGroup ON DELETE CASCADE)
+    PRIMARY KEY (username, group_id)
+
+Table: Submissions
+
+    submission_id (integer PRIMARY KEY)
+    file_name (varchar(25) NOT NULL)
+    username (varchar(25) NOT NULL)
+    group_id (integer NOT NULL)
+    submission_date (timestamp NOT NULL)
+    UNIQUE (file_name, username, submission_date)
+    FOREIGN KEY (username, group_id) REFERENCES Membership ON DELETE CASCADE
+
+Table: Grader
+
+    group_id (integer PRIMARY KEY REFERENCES AssignmentGroup ON DELETE CASCADE)
+    username (varchar(25) NOT NULL REFERENCES MarkusUser ON DELETE CASCADE)
+
+Table: RubricItem
+
+    rubric_id (integer PRIMARY KEY)
+    assignment_id (integer NOT NULL REFERENCES Assignment ON DELETE CASCADE)
+    name (varchar(50) NOT NULL)
+    out_of (positiveInt NOT NULL)
+    weight (positiveFloat NOT NULL)
+    UNIQUE (assignment_id, name)
+
+Table: Grade
+
+    group_id (integer REFERENCES AssignmentGroup ON DELETE CASCADE)
+    rubric_id (integer REFERENCES RubricItem ON DELETE CASCADE)
+    grade (positiveFloat NOT NULL)
+    PRIMARY KEY (group_id, rubric_id)
+
+Table: Result
+
+    group_id (integer PRIMARY KEY REFERENCES AssignmentGroup ON DELETE CASCADE)
+    mark (positiveFloat NOT NULL)
+    released (boolean DEFAULT false)
