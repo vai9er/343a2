@@ -132,9 +132,14 @@ from superior_avg;
 
 -- Your query that answers the question goes below the "insert into" line:
 INSERT INTO q3(assignment_id, description, num_solo, average_solo, num_collaborators, average_collaborators, average_students_per_group)
-select superior_avg.assignment_id, answer_description.description, answer_num_solo.num_solo, answer_average_solo.average_solo,
-answer_num_collaberators.num_collaborators, answer_avg_collaberators.average_collaborators, 
-answer_avg_num_students.average_students_per_group
+select 
+	superior_avg.assignment_id, 
+	answer_description.description, 
+	answer_num_solo.num_solo, 
+	answer_average_solo.average_solo,
+	answer_num_collaberators.num_collaborators, 
+	answer_avg_collaberators.average_collaborators, 
+	answer_avg_num_students.average_students_per_group
 from
 	superior_avg join answer_description
 	on superior_avg.assignment_id = answer_description.assignment_id
