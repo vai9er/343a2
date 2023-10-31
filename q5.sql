@@ -1,41 +1,58 @@
--- Uneven workloads.
-
--- You must not change the next 2 lines or the table definition.
-SET search_path TO markus;
-DROP TABLE IF EXISTS q5 CASCADE;
-
-CREATE TABLE q5 (
-	assignment_id integer NOT NULL,
-	username varchar(25) NOT NULL,
-	num_assigned integer NOT NULL
-);
-
--- Do this for each of the views that define your intermediate steps.
--- (But give them better names!) The IF EXISTS avoids generating an error
--- the first time this file is imported.
-DROP VIEW IF EXISTS grouped CASCADE;
-DROP VIEW IF EXISTS  min_max CASCADE;
-
--- Define views for your intermediate steps here:
--- Every group, grader, and assignment
-CREATE VIEW grouped AS 
-select Assignment.assignment_id, grader.username, count(AssignmentGroup.group_id) as num_assigned
-From (Assignment JOIN AssignmentGroup ON Assignment.assignment_id = AssignmentGroup.assignment_id) JOIN GRADER ON AssignmentGroup.group_id = grader.group_id
-GROUP BY Assignment.assignment_id, grader.username;
-
--- Min and max of every assignment
-CREATE VIEW min_max AS
-select assignment_id,min(num_assigned) as min_num, max(num_assigned) as max_num from grouped
-GROUP BY assignment_id;
-
-
-
--- Your query that answers the question goes below the "insert into" line:
-INSERT INTO q5(
-	select g1.assignment_id, g1.username, g1.num_assigned
-	FROM grouped g1
-	WHERE g1.assignment_id in (
-		select assignment_id
-		from min_max
-		where max_num - min_num > 10)
-);
+    -- Set search path and drop the existing table if it exists.
+    SET search_path TO markus;
+    DROP TABLE IF EXISTS q5 CASCADE;
+     
+    -- Create q5 table.
+    CREATE TABLE q5 (
+      assignment_id integer NOT NULL,
+      username varchar(25) NOT NULL,
+      num_assigned integer NOT NULL
+    );
+     
+    -- Drop previously used views.
+    DROP VIEW IF EXISTS grader_assignment_counts CASCADE;
+    DROP VIEW IF EXISTS assignment_discrepancies CASCADE;
+    DROP VIEW IF EXISTS affected_assignments CASCADE;
+     
+    -- Create a view for the count of groups assigned to each grader for every assignment.
+    CREATE VIEW grader_assignment_counts AS 
+    SELECT 
+        Assignment.assignment_id, 
+        grader.username, 
+        COUNT(AssignmentGroup.group_id) as num_assigned
+    FROM 
+        Assignment 
+    JOIN AssignmentGroup ON Assignment.assignment_id = AssignmentGroup.assignment_id 
+    JOIN GRADER ON AssignmentGroup.group_id = grader.group_id
+    GROUP BY 
+        Assignment.assignment_id, grader.username;
+     
+    -- View to capture the range difference in assignments for each assignment.
+    CREATE VIEW assignment_discrepancies AS
+    SELECT 
+        assignment_id,
+        MAX(num_assigned) - MIN(num_assigned) as range_diff
+    FROM 
+        grader_assignment_counts
+    GROUP BY 
+        assignment_id;
+     
+    -- View for assignments affected by a range discrepancy over 10.
+    CREATE VIEW affected_assignments AS
+    SELECT 
+        assignment_id
+    FROM 
+        assignment_discrepancies
+    WHERE 
+        range_diff > 10;
+     
+    -- Insert into q5 using the data from the views.
+    INSERT INTO q5
+    SELECT 
+        gac.assignment_id,
+        gac.username,
+        gac.num_assigned
+    FROM 
+        grader_assignment_counts gac
+    WHERE 
+        gac.assignment_id IN (SELECT assignment_id FROM affected_assignments);
