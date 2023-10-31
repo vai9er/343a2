@@ -27,9 +27,11 @@ DROP VIEW IF EXISTS multi_avg CASCADE;
 DROP VIEW IF EXISTS superior_avg CASCADE;
 DROP VIEW IF EXISTS answer_description CASCADE;
 DROP VIEW IF EXISTS answer_num_solo CASCADE;
+DROP VIEW IF EXISTS collab_helper CASCADE;
 DROP VIEW IF EXISTS answer_num_collaberators CASCADE;
 DROP VIEW IF EXISTS avg_by_group CASCADE;
 DROP VIEW IF EXISTS answer_avg_collaberators CASCADE;
+DROP VIEW IF EXISTS answer_avg_num_students_helper CASCADE;
 DROP VIEW IF EXISTS answer_avg_num_students CASCADE;
 -- finished grading assignments
 -- assignment with solo AND multi-member groups
@@ -48,90 +50,126 @@ Where not exists (
 	where Result.group_id = AG.group_id and Result.released = false
 );
 
+-- solo groups
 Create View solo AS
-select Membership.username, done_grading.group_ID, done_grading.assignment_id
+select Membership.group_ID, done_grading.assignment_id
 FROM done_grading JOIN Membership
 ON done_grading.group_id = Membership.group_ID
-Group By username, done_grading.group_id, assignment_id
-Having COUNT(username) = 1;
+Group By Membership.group_id, done_grading.assignment_id
+Having COUNT(Membership.group_id) = 1;
 
+--multi student groups
 Create View multi AS
-select Membership.username, done_grading.group_ID, done_grading.assignment_id
+select done_grading.group_ID, done_grading.assignment_id
 FROM done_grading JOIN Membership
 ON done_grading.group_id = Membership.group_ID
-Group By username, done_grading.group_id, assignment_id
-Having COUNT(username) > 1;
+Group By done_grading.group_id, assignment_id
+Having COUNT(done_grading.group_id) > 1;
 
+-- grades of solo students
 Create View solo_grades AS
-select solo.username, solo.group_id, solo.assignment_id, Result.mark
+select solo.group_id, solo.assignment_id, Result.mark
 from solo 
 	JOIN Result
 	ON solo.group_id = Result.group_ID
 Where Result.released = true;
 
+-- grades of multi student groups
 Create View multi_grades AS
-select multi.username, multi.group_id, multi.assignment_id, Result.mark
+select multi.group_id, multi.assignment_id, Result.mark
 from multi 
 	JOIN Result
 	ON multi.group_id = Result.group_ID
 Where Result.released = true;
 
+-- average mark of each solo worker
 Create View solo_avg AS
 select solo_grades.group_id, solo_grades.assignment_id, AVG(solo_grades.mark) as average_solo
 from solo_grades
 group by solo_grades.group_id, solo_grades.assignment_id;
 
+-- average mark of each multi worker
 Create View multi_avg AS
 select multi_grades.group_id, multi_grades.assignment_id, AVG(multi_grades.mark) as average_mark
 from multi_grades
 group by multi_grades.group_id, multi_grades.assignment_id;
 
+-- assignment_ids with superior solo avg
 Create View superior_avg AS
-select solo_avg.assignment_id
+select distinct solo_avg.assignment_id
 from solo_avg join multi_avg
 on solo_avg.assignment_id = multi_avg.assignment_id
 where solo_avg.average_solo > multi_avg.average_mark;
 
+-- gets description per superior assignment
 Create View answer_description AS
 select superior_avg.assignment_id, Assignment.description
 from superior_avg join Assignment
 on superior_avg.assignment_id = Assignment.assignment_id;
 
+-- gets number of solo workers per superior assignment
 Create View answer_num_solo AS 
 select solo_avg.assignment_id, count(solo_avg.assignment_id) as num_solo
 from solo_avg join superior_avg
 on solo_avg.assignment_id = superior_avg.assignment_id
 group by solo_avg.assignment_id;
 
+-- gets solo average per superior assignment
 Create View answer_average_solo AS 
 select solo_avg.average_solo, solo_avg.assignment_id
 from solo_avg join superior_avg
 on solo_avg.assignment_id = superior_avg.assignment_id;
 
-Create View answer_num_collaberators AS 
-select multi_avg.assignment_id, count(multi_avg.assignment_id) as num_collaborators
-from multi_avg join superior_avg
-on multi_avg.assignment_id = superior_avg.assignment_id
-group by multi_avg.assignment_id;
+-- gets the number of collaborators per superior assignment
+Create View collab_helper AS 
+select superior_avg.assignment_id, count(Membership.username) as num_collaborators
+from superior_avg join AssignmentGroup
+	on superior_avg.assignment_id = AssignmentGroup.assignment_id
+	join Membership
+	on AssignmentGroup.group_id = Membership.group_id
+group by superior_avg.assignment_id, AssignmentGroup.group_id
+Having COUNT(AssignmentGroup.group_id) > 1;
 
+Create View answer_num_collaberators AS 
+select assignment_id, sum(num_collaborators) as num_collaborators
+from collab_helper
+group by assignment_id;
+
+-- gets the group average
 Create View avg_by_group as
 select distinct multi_avg.group_id, multi_avg.assignment_id, sum(multi_avg.average_mark) as average_mark
 from multi_avg
 group by multi_avg.group_id, multi_avg.assignment_id;
 
+-- gets the group average per suprior assignment
 Create View answer_avg_collaberators AS 
-select avg_by_group.assignment_id, avg(avg_by_group.average_mark) as average_collaborators
+select distinct avg_by_group.assignment_id, avg(avg_by_group.average_mark) as average_collaborators
 from avg_by_group join superior_avg
 on avg_by_group.assignment_id = superior_avg.assignment_id
 group by avg_by_group.assignment_id;
 
--- todo
+-- gets the average number of multi student groups per superior assignment
+Create View answer_avg_num_students_helper AS
+select superior_avg.assignment_id, count(Membership.username) as group_count
+from superior_avg join AssignmentGroup
+	on superior_avg.assignment_id = AssignmentGroup.assignment_id
+	join Membership
+	on AssignmentGroup.group_id = Membership.group_id
+group by superior_avg.assignment_id, AssignmentGroup.group_id;
+
 Create View answer_avg_num_students AS
-select superior_avg.assignment_id, 1 as average_students_per_group
-from superior_avg;
+select assignment_id, avg(group_count) as average_students_per_group
+from answer_avg_num_students_helper
+group by assignment_id;
+
 
 -- Your query that answers the question goes below the "insert into" line:
-INSERT INTO q3(assignment_id, description, num_solo, average_solo, num_collaborators, average_collaborators, average_students_per_group)
+
+INSERT INTO q3(
+	assignment_id, description, 
+	num_solo, average_solo, 
+	num_collaborators, average_collaborators, 
+	average_students_per_group)
 select 
 	superior_avg.assignment_id, 
 	answer_description.description, 
@@ -153,4 +191,5 @@ from
 	on superior_avg.assignment_id = answer_avg_num_students.assignment_id
 	join answer_average_solo
 	on superior_avg.assignment_id = answer_average_solo.assignment_id;
+
 
