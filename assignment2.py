@@ -127,6 +127,41 @@ class Markus:
         except pg.Error as ex:
             return None
 
+    def checkGroupID(self, group: int) -> bool:
+        try:
+            with self.connection.cursor() as cur:
+                cur.execute("SELECT COUNT(group_id) FROM AssignmentGroup WHERE group_id = %s", (group,))
+                result = cur.fetchone()
+                if result[0] >= 1:
+                    return True
+                else: return False
+        except pg.Error as ex:
+            return None
+        
+    def checkGrader(self, grader: str) -> bool:
+        try:
+            with self.connection.cursor() as cur:
+                cur.execute("SELECT COUNT(username) FROM MarkusUser WHERE username = %s and type != 'student'", (grader,))
+                result = cur.fetchone()
+                if result[0] >= 1:
+                    return True
+                else: return False
+        except pg.Error as ex:
+            return None
+    
+    def checkGraderAssigned(self, group: int) -> bool:
+        # returns true if a grader is assigned
+        # returns false if grader is not assigned
+        try:
+            with self.connection.cursor() as cur:
+                cur.execute("SELECT COUNT(username) FROM Grader WHERE group_id = %s", (group,))
+                result = cur.fetchone()
+                if result[0] >= 1:
+                    return True
+                else: return False
+        except pg.Error as ex:
+            return None
+
     def assign_grader(self, group: int, grader: str) -> bool:
         """Assign grader <grader> to the assignment group <group>, by updating
         the Grader table appropriately.
@@ -150,12 +185,49 @@ class Markus:
         """
         try:
             # TODO: Implement this method
-            pass
+            with self.connection.cursor() as cur:
+                # check if group and grader are valid
+                if(self.checkGroupID(group) and self.checkGrader(grader)):
+                    #if a grader is assigned to group
+                    if(self.checkGraderAssigned(group)):
+                        cur.execute("UPDATE grader SET username = %s WHERE group_id = %s", (grader, group))
+                    else:
+                    #if grader is not assigned to group
+                        cur.execute("INSERT INTO grader (group_id, username) VALUES (%s, %s)", (group, grader))
+                    self.connection.commit()
+                    return True
+                return False
         except pg.Error as ex:
             # You may find it helpful to uncomment this line while debugging,
             # as it will show you all the details of the error that occurred:
             # raise ex
-            return
+            return False
+
+    def checkusernameValid(self, username: str) -> bool:
+        # returns true if a username is in markususers
+        # returns false if a username is not in markususers
+        try:
+            with self.connection.cursor() as cur:
+                cur.execute("SELECT COUNT(username) FROM MarkusUser WHERE username = %s", (username,))
+                result = cur.fetchone()
+                if result[0] >= 1:
+                    return True
+                else: return False
+        except pg.Error as ex:
+            return None
+    
+    def checkuserpartofgroup(self, username: str) -> bool:
+        # returns true if a username is part of group
+        # returns false if username is not part of a group
+        try:
+            with self.connection.cursor() as cur:
+                cur.execute("SELECT COUNT(username) FROM Membership WHERE username = %s", (username,))
+                result = cur.fetchone()
+                if result[0] >= 1:
+                    return True
+                else: return False
+        except pg.Error as ex:
+            return None
 
     def remove_student(self, username: str, date: dt.date) -> int:
         """Remove the student identified by <username> from all groups on
@@ -179,12 +251,44 @@ class Markus:
         """
         try:
             # TODO: Implement this method
-            pass
+            with self.connection.cursor() as cur:
+                # if username is invalid then return -1
+                if(self.checkusernameValid(username)):
+                    if(not self.checkuserpartofgroup(username)):
+                        # if username is valid but not part of a group return 0
+                        return 0
+                    else:
+                        # if username is valid and part of group(s) return number of deletions
+                        find_query = "Select username, Membership.group_id From Assignment JOIN AssignmentGroup on Assignment.assignment_id = AssignmentGroup.assignment_id JOIN Membership on Membership.group_id = AssignmentGroup.group_id where ((Assignment.due_date - %s) > INTERVAL '1' day) and username = %s"
+                        cur.execute(find_query, (date, username))
+                        results = cur.fetchall() 
+                        num_deleted = 0
+                        
+                        for row in results:
+                            username, group_id = row
+                            delete_query = "DELETE FROM Membership WHERE Membership.username = %s AND Membership.group_id = %s"
+                            cur.execute(delete_query, (username, group_id))
+                            num_deleted += 1
+                        self.connection.commit()
+                        # code is okay until here
+
+                        #delete any AssigmentGroup that has no membership
+                        empty_groups = "Select AssignmentGroup.group_id from AssignmentGroup WHERE AssignmentGroup.group_id NOT IN (Select group_id from Membership)"
+                        cur.execute(empty_groups)
+                        no_members = cur.fetchall() 
+                        for row in no_members:
+                            group_id = row
+                            print(group_id)
+                            delete_query = "DELETE FROM AssignmentGroup Where AssignmentGroup.group_id = %s"
+                            cur.execute(delete_query, (group_id))
+                        self.connection.commit()
+                        return num_deleted
+                return -1
         except pg.Error as ex:
             # You may find it helpful to uncomment this line while debugging,
             # as it will show you all the details of the error that occurred:
             # raise ex
-            return
+            return -1
 
     def create_groups(
         self, assignment_to_group: int, other_assignment: int, repo_prefix: str
@@ -296,15 +400,15 @@ def test_get_groups_count() -> None:
     """
     # TODO: Change the values of the following variables to connect to your
     #  own database:
-    dbname = "postgres"
-    user = "postgres"
-    password = "password"
+    dbname = "csc343h-xiongkev"
+    user = "xiongkev"
+    password = ""
 
     # The following uses the relative paths to the schema file and the data file
     # we have provided. For your own tests, you will want to make your own data
     # files to use for testing.
-    schema_file = "./handout/schema.ddl"
-    data_file = "./handout/data.sql"
+    schema_file = "schema.ddl"
+    data_file = "data.sql"
 
     a2 = Markus()
     try:
@@ -343,11 +447,60 @@ def test_get_groups_count() -> None:
     finally:
         a2.disconnect()
 
+def test_assign_grader() -> None:
+    dbname = "csc343h-xiongkev"
+    user = "xiongkev"
+    password = ""
+    schema_file = "schema.ddl"
+    data_file = "data.sql"
+
+    a2 = Markus()
+    try:
+        connected = a2.connect(dbname, user, password)
+        assert connected, f"[Connect] Expected True | Got {connected}."
+        setup(dbname, user, password, schema_file, data_file)
+
+        non_grader = a2.assign_grader(1, 'xyz')
+        print("assigning non-existant grader: %s", non_grader)
+        non_group = a2.assign_grader(6, 't2another')
+        print("assigning non-existant group: %s", non_group)
+        non_both = a2.assign_grader(6, 'xyz')
+        print("assigning non-existant group: %s", non_both)
+
+        valid_assign = a2.assign_grader(1, 't2another')
+        print("assigning non-existant group: %s", valid_assign)
+
+    finally:
+        a2.disconnect()
+
+def test_remove_student() -> None:
+    dbname = "csc343h-xiongkev"
+    user = "xiongkev"
+    password = ""
+    schema_file = "schema.ddl"
+    data_file = "data.sql"
+
+    a2 = Markus()
+    try:
+        connected = a2.connect(dbname, user, password)
+        assert connected, f"[Connect] Expected True | Got {connected}."
+        setup(dbname, user, password, schema_file, data_file)
+
+
+        invalid_name = a2.remove_student('skdjfnsdjkfn', '2000-10-01 9:00')
+        print("removing invalid name should be -1: ", invalid_name)
+        remove_epoch = a2.remove_student('solostudent', '2000-10-01 9:00')
+        print("removing valid student since epoch: %s", remove_epoch)
+
+    finally:
+        a2.disconnect()
 
 if __name__ == "__main__":
     # Un comment-out the next two lines if you would like to run the doctest
     # examples (see ">>>" in the methods connect and disconnect)
     # import doctest
     # doctest.testmod()
-
-    test_get_groups_count()
+    # a2 = Markus()
+    # a2.assign_grader(1, 't2another')
+    # test_get_groups_count()
+    test_remove_student()

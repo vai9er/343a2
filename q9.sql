@@ -1,14 +1,4 @@
 -- Inseparable.
--- Inseparable Report pairs of students who were part of a multi-member group
--- whenever the assignment permitted it, and always worked together (possibly with other students 
--- in a larger group). Note: The result will also be empty if no assignment allows multi-member 
--- groups or if one or more assignments that allow multi-member groups has no groups declared.
--- HINT: SQL allows you to compare strings lexicographically 
--- (in the order they would appear in the dictionary). 
--- Consequently, you can use comparison operators (>, <, =, ≥, ≤) 
--- or ORDER BY on string attributes in the same way you use them on integer 
--- attributes. For example, the result of select ’apple’ > ’banana’; would be False, 
---since ’apple’ would appear first in the dictionary. 
 
 -- You must not change the next 2 lines or the table definition.
 SET search_path TO markus;
@@ -37,10 +27,10 @@ Select assignment_id from Assignment
 WHERE group_max > 1;
 
 -- Students who worked alone in multi_assignments
+
 Create View loners_groups AS
 Select Membership.group_id
-From AssignmentGroup JOIN multi_assignments
-	ON multi_assignments.assignment_id = AssignmentGroup.assignment_id
+From AssignmentGroup
 	JOIN Membership
 	ON Membership.group_id = AssignmentGroup.group_ID
 Group by Membership.group_id
