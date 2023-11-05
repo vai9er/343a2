@@ -291,92 +291,107 @@ class Markus:
             return -1
 
     def create_groups(self, assignment_to_group: int, other_assignment: int, repo_prefix: str) -> bool:
+
+        #given helper
+        sql_check_assignments_exist = """
+        SELECT EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s),
+            EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s)
+        """
+
+        #given helper
+        sql_check_no_groups = """
+        SELECT count(*) FROM AssignmentGroup WHERE assignment_id = %s
+        """
+
+        sql_get_group_max = """
+        SELECT group_max FROM Assignment WHERE assignment_id = %s
+        """
+
+        sql_get_students_and_grades = """
+        SELECT MarkusUser.username
+        FROM MarkusUser
+        JOIN Membership ON MarkusUser.username = Membership.username
+        LEFT JOIN Result ON Membership.group_id = Result.group_id
+        join Assignmentgroup
+        on Membership.group_id = assignmentgroup.group_id
+        WHERE assignmentgroup.assignment_id = %s AND MarkusUser.type = 'student'
+        ORDER BY Result.mark DESC NULLS LAST, MarkusUser.username ASC
+        """
+
+        sql_insert_group = """
+        INSERT INTO AssignmentGroup (group_id, assignment_id, repo)
+        VALUES ((SELECT COALESCE(MAX(group_id) +1 ) FROM AssignmentGroup), %s, %s)"""
+
+        sql_insert_membership = """
+        INSERT INTO Membership (username, group_id)
+        VALUES (%s, %s)
+        """
+
         try:
-            # Get the cursor
-            cursor = self.connection.cursor()
+            with self.connection.cursor() as cursor:
+                print("test1")
+                # Check if both assignments exist
+                cursor.execute(sql_check_assignments_exist, (assignment_to_group, other_assignment))
+                assignment_exists, other_assignment_exists = cursor.fetchone()
+                if not (assignment_exists and other_assignment_exists):
+                    return False
 
-            # Check if both assignments exist
-            sql_check_assignments_exist = """
-            SELECT EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s),
-                EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s)
-            """
-            cursor.execute(sql_check_assignments_exist, (assignment_to_group, other_assignment))
-            assignment_exists, other_assignment_exists = cursor.fetchone()
-            if not (assignment_exists and other_assignment_exists):
-                return False
+                # Check if there are no groups defined for assignment_to_group
+                cursor.execute(sql_check_no_groups, (assignment_to_group,))
+                if cursor.fetchone()[0] != 0:
+                    return False
 
-            # Check if any groups have already been created for assignment_to_group
-            sql_check_no_groups = """
-            SELECT count(*) FROM AssignmentGroup WHERE assignment_id = %s
-            """
-            cursor.execute(sql_check_no_groups, (assignment_to_group,))
-            if cursor.fetchone()[0] > 0:
-                return False
+                # Get the maximum group size for assignment_to_group
+                cursor.execute(sql_get_group_max, (assignment_to_group,))
+                group_max = cursor.fetchone()[0]
 
-            # Get the maximum number of people in a group for assignment_to_group
-            cursor.execute("SELECT group_max FROM Assignment WHERE assignment_id = %s", (assignment_to_group,))
-            group_max_record = cursor.fetchone()
-            if group_max_record is None:
-                return False
-            group_max = group_max_record[0]
+                # Get students and their grades
+                cursor.execute(sql_get_students_and_grades, (other_assignment,))
+                students = cursor.fetchall()
 
-            # Get all the students in order of grades and alphabetical username
-            sql_students_ordered = """
-            SELECT MU.username
-            FROM MarkusUser MU
-            LEFT JOIN Membership M ON MU.username = M.username
-            LEFT JOIN AssignmentGroup AG ON M.group_id = AG.group_id
-            LEFT JOIN Result R ON AG.group_id = R.group_id AND AG.assignment_id = %s
-            WHERE MU.type = 'student'
-            ORDER BY R.mark DESC NULLS LAST, MU.username;
-            """
-            cursor.execute(sql_students_ordered, (other_assignment,))
-            students = cursor.fetchall()
+                # If there are no students, return True as it is considered successful
+                if not students:
+                    return True
 
-            # If there are no students, return True
-            if not students:
+                # Start transaction
+                self.connection.autocommit = False
+
+                # Create groups
+                for i in range(0, len(students), group_max):
+                    print("test2")
+                    group_students = students[i:i + group_max]
+                    # Insert group without repo URL first
+                    cursor.execute(sql_insert_group, (assignment_to_group, ''))
+                    group_id = cursor.fetchone()[0]
+                    self.connection.commit()
+
+                    # Update repo URL with the new group_id
+                    repo_url = f"{repo_prefix}/group_{group_id}"
+                    cursor.execute("UPDATE AssignmentGroup SET repo = %s WHERE group_id = %s", (repo_url, group_id))
+                    print("before commit")
+                    self.connection.commit()
+                    print("after commit")
+
+                    # Insert members into group
+                    for student in group_students:
+                        print("before insertion")
+                        cursor.execute(sql_insert_membership, (student[0], group_id))
+                        self.connection.commit()
+                        print("after insertion")
+
+                # Commit transaction
+                self.connection.commit()
+                self.connection.autocommit = True
                 return True
 
-            counter = 0
-            group_id = None
-
-            # Go through the students and assign them to groups
-            for student in students:
-                if counter == 0:
-                    # Start a new group
-                    cursor.execute("SELECT nextval('group_id_seq')")
-                    group_id = cursor.fetchone()[0]
-                    repo = f"{repo_prefix}/group_{group_id}"
-                    cursor.execute(
-                        "INSERT INTO AssignmentGroup (group_id, assignment_id, repo) VALUES (%s, %s, %s)",
-                        (group_id, assignment_to_group, repo)
-                    )
-
-                # Add the student to the group
-                cursor.execute(
-                    "INSERT INTO Membership (username, group_id) VALUES (%s, %s)",
-                    (student[0], group_id)
-                )
-                counter += 1
-
-                # Check if this is the last student or if the group is at max capacity
-                if counter == group_max or student == students[-1]:
-                    counter = 0  # Reset counter for a new group
-
-            # Commit the transaction
-            self.connection.commit()
-            return True
-
         except pg.Error as ex:
-            # Rollback in case of error
+            # If an error occurs, rollback the transaction
             self.connection.rollback()
-            # Uncomment the line below to see the error details during debugging
+            self.connection.autocommit = True
+            # Uncomment the following line to debug
             # print(ex)
+            print("BRUH")
             return False
-
-        finally:
-            # Close the cursor
-            cursor.close()
 
 
 def setup(
