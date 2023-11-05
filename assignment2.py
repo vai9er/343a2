@@ -346,7 +346,7 @@ class Markus:
 
         #given helper
         sql_check_no_groups = """
-        SELECT 1 FROM AssignmentGroup WHERE assignment_id = %s
+        SELECT count(*) FROM AssignmentGroup WHERE assignment_id = %s
         """
 
         sql_get_group_max = """
@@ -358,14 +358,15 @@ class Markus:
         FROM MarkusUser
         JOIN Membership ON MarkusUser.username = Membership.username
         LEFT JOIN Result ON Membership.group_id = Result.group_id
-        WHERE Membership.assignment_id = %s AND MarkusUser.type = 'student'
+        join Assignmentgroup
+        on Membership.group_id = assignmentgroup.group_id
+        WHERE assignmentgroup.assignment_id = %s AND MarkusUser.type = 'student'
         ORDER BY Result.mark DESC NULLS LAST, MarkusUser.username ASC
         """
 
         sql_insert_group = """
-        INSERT INTO AssignmentGroup (assignment_id, repo)
-        VALUES (%s, %s) RETURNING group_id
-        """
+        INSERT INTO AssignmentGroup (group_id, assignment_id, repo)
+        VALUES ((SELECT COALESCE(MAX(group_id) +1 ) FROM AssignmentGroup), %s, %s)"""
 
         sql_insert_membership = """
         INSERT INTO Membership (username, group_id)
@@ -379,12 +380,12 @@ class Markus:
                 assignment_exists, other_assignment_exists = cursor.fetchone()
                 if not (assignment_exists and other_assignment_exists):
                     return False
-
+                
                 # Check if there are no groups defined for assignment_to_group
                 cursor.execute(sql_check_no_groups, (assignment_to_group,))
-                if cursor.fetchone():
+                if cursor.fetchone()[0] != 0:
                     return False
-
+                
                 # Get the maximum group size for assignment_to_group
                 cursor.execute(sql_get_group_max, (assignment_to_group,))
                 group_max = cursor.fetchone()[0]
@@ -406,14 +407,17 @@ class Markus:
                     # Insert group without repo URL first
                     cursor.execute(sql_insert_group, (assignment_to_group, ''))
                     group_id = cursor.fetchone()[0]
+                    self.connection.commit()
 
                     # Update repo URL with the new group_id
                     repo_url = f"{repo_prefix}/group_{group_id}"
                     cursor.execute("UPDATE AssignmentGroup SET repo = %s WHERE group_id = %s", (repo_url, group_id))
+                    self.connection.commit()
 
                     # Insert members into group
                     for student in group_students:
                         cursor.execute(sql_insert_membership, (student[0], group_id))
+                        self.connection.commit()
 
                 # Commit transaction
                 self.connection.commit()
@@ -568,6 +572,26 @@ def test_remove_student() -> None:
     finally:
         a2.disconnect()
 
+def test_create_groups() -> None:
+    dbname = "csc343h-xiongkev"
+    user = "xiongkev"
+    password = ""
+    schema_file = "schema.ddl"
+    data_file = "dataRstudent.sql"
+
+    a2 = Markus()
+    try:
+        connected = a2.connect(dbname, user, password)
+        assert connected, f"[Connect] Expected True | Got {connected}."
+        setup(dbname, user, password, schema_file, data_file)
+
+
+        testy = a2.create_groups(2, 1, 'test1')
+        print("test1: ", testy)
+
+    finally:
+        a2.disconnect()
+
 if __name__ == "__main__":
     # Un comment-out the next two lines if you would like to run the doctest
     # examples (see ">>>" in the methods connect and disconnect)
@@ -576,4 +600,4 @@ if __name__ == "__main__":
     # a2 = Markus()
     # a2.assign_grader(1, 't2another')
     # test_get_groups_count()
-    test_remove_student()
+    test_create_groups()
