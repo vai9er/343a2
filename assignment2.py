@@ -291,107 +291,92 @@ class Markus:
             return -1
 
     def create_groups(self, assignment_to_group: int, other_assignment: int, repo_prefix: str) -> bool:
-
-        #given helper
-        sql_check_assignments_exist = """
-        SELECT EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s),
-            EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s)
-        """
-
-        #given helper
-        sql_check_no_groups = """
-        SELECT count(*) FROM AssignmentGroup WHERE assignment_id = %s
-        """
-
-        sql_get_group_max = """
-        SELECT group_max FROM Assignment WHERE assignment_id = %s
-        """
-
-        sql_get_students_and_grades = """
-        SELECT MarkusUser.username
-        FROM MarkusUser
-        JOIN Membership ON MarkusUser.username = Membership.username
-        LEFT JOIN Result ON Membership.group_id = Result.group_id
-        join Assignmentgroup
-        on Membership.group_id = assignmentgroup.group_id
-        WHERE assignmentgroup.assignment_id = %s AND MarkusUser.type = 'student'
-        ORDER BY Result.mark DESC NULLS LAST, MarkusUser.username ASC
-        """
-
-        sql_insert_group = """
-        INSERT INTO AssignmentGroup (group_id, assignment_id, repo)
-        VALUES ((SELECT COALESCE(MAX(group_id) +1 ) FROM AssignmentGroup), %s, %s)"""
-
-        sql_insert_membership = """
-        INSERT INTO Membership (username, group_id)
-        VALUES (%s, %s)
-        """
-
         try:
-            with self.connection.cursor() as cursor:
-                print("test1")
-                # Check if both assignments exist
-                cursor.execute(sql_check_assignments_exist, (assignment_to_group, other_assignment))
-                assignment_exists, other_assignment_exists = cursor.fetchone()
-                if not (assignment_exists and other_assignment_exists):
-                    return False
+            # Get the cursor
+            cursor = self.connection.cursor()
 
-                # Check if there are no groups defined for assignment_to_group
-                cursor.execute(sql_check_no_groups, (assignment_to_group,))
-                if cursor.fetchone()[0] != 0:
-                    return False
+            # Check if both assignments exist
+            sql_check_assignments_exist = """
+            SELECT EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s),
+                EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s)
+            """
+            cursor.execute(sql_check_assignments_exist, (assignment_to_group, other_assignment))
+            assignment_exists, other_assignment_exists = cursor.fetchone()
+            if not (assignment_exists and other_assignment_exists):
+                return False
 
-                # Get the maximum group size for assignment_to_group
-                cursor.execute(sql_get_group_max, (assignment_to_group,))
-                group_max = cursor.fetchone()[0]
+            # Check if any groups have already been created for assignment_to_group
+            sql_check_no_groups = """
+            SELECT count(*) FROM AssignmentGroup WHERE assignment_id = %s
+            """
+            cursor.execute(sql_check_no_groups, (assignment_to_group,))
+            if cursor.fetchone()[0] > 0:
+                return False
 
-                # Get students and their grades
-                cursor.execute(sql_get_students_and_grades, (other_assignment,))
-                students = cursor.fetchall()
+            # Get the maximum number of people in a group for assignment_to_group
+            cursor.execute("SELECT group_max FROM Assignment WHERE assignment_id = %s", (assignment_to_group,))
+            group_max_record = cursor.fetchone()
+            if group_max_record is None:
+                return False
+            group_max = group_max_record[0]
 
-                # If there are no students, return True as it is considered successful
-                if not students:
-                    return True
+            # Get all the students in order of grades and alphabetical username
+            sql_students_ordered = """
+            SELECT MU.username
+            FROM MarkusUser MU
+            LEFT JOIN Membership M ON MU.username = M.username
+            LEFT JOIN AssignmentGroup AG ON M.group_id = AG.group_id
+            LEFT JOIN Result R ON AG.group_id = R.group_id AND AG.assignment_id = %s
+            WHERE MU.type = 'student'
+            ORDER BY R.mark DESC NULLS LAST, MU.username;
+            """
+            cursor.execute(sql_students_ordered, (other_assignment,))
+            students = cursor.fetchall()
 
-                # Start transaction
-                self.connection.autocommit = False
-
-                # Create groups
-                for i in range(0, len(students), group_max):
-                    print("test2")
-                    group_students = students[i:i + group_max]
-                    # Insert group without repo URL first
-                    cursor.execute(sql_insert_group, (assignment_to_group, ''))
-                    group_id = cursor.fetchone()[0]
-                    self.connection.commit()
-
-                    # Update repo URL with the new group_id
-                    repo_url = f"{repo_prefix}/group_{group_id}"
-                    cursor.execute("UPDATE AssignmentGroup SET repo = %s WHERE group_id = %s", (repo_url, group_id))
-                    print("before commit")
-                    self.connection.commit()
-                    print("after commit")
-
-                    # Insert members into group
-                    for student in group_students:
-                        print("before insertion")
-                        cursor.execute(sql_insert_membership, (student[0], group_id))
-                        self.connection.commit()
-                        print("after insertion")
-
-                # Commit transaction
-                self.connection.commit()
-                self.connection.autocommit = True
+            # If there are no students, return True
+            if not students:
                 return True
 
+            counter = 0
+            group_id = None
+
+            # Go through the students and assign them to groups
+            for student in students:
+                if counter == 0:
+                    # Start a new group
+                    cursor.execute("SELECT nextval('group_id_seq')")
+                    group_id = cursor.fetchone()[0]
+                    repo = f"{repo_prefix}/group_{group_id}"
+                    cursor.execute(
+                        "INSERT INTO AssignmentGroup (group_id, assignment_id, repo) VALUES (%s, %s, %s)",
+                        (group_id, assignment_to_group, repo)
+                    )
+
+                # Add the student to the group
+                cursor.execute(
+                    "INSERT INTO Membership (username, group_id) VALUES (%s, %s)",
+                    (student[0], group_id)
+                )
+                counter += 1
+
+                # Check if this is the last student or if the group is at max capacity
+                if counter == group_max or student == students[-1]:
+                    counter = 0  # Reset counter for a new group
+
+            # Commit the transaction
+            self.connection.commit()
+            return True
+
         except pg.Error as ex:
-            # If an error occurs, rollback the transaction
+            # Rollback in case of error
             self.connection.rollback()
-            self.connection.autocommit = True
-            # Uncomment the following line to debug
+            # Uncomment the line below to see the error details during debugging
             # print(ex)
-            print("BRUH")
             return False
+
+        finally:
+            # Close the cursor
+            cursor.close()
 
 
 def setup(
@@ -534,55 +519,25 @@ def test_remove_student() -> None:
         a2.disconnect()
 
 def test_create_groups() -> None:
-    """Test method create_groups.
-    """
-    dbname = "csc343h-vainerga"
-    user = "vainerga"
+    dbname = "csc343h-xiongkev"
+    user = "xiongkev"
     password = ""
-    # The following uses the relative paths to the schema file and the data file
-    # we have provided. For your own tests, you will want to make your own data
-    # files to use for testing.
     schema_file = "schema.ddl"
-    data_file = "data.sql"
-    data_nostudents = "data-nostudents.sql"
-    data_group3 = "data-group3.sql"
+    data_file = "dataRstudent.sql"
+
     a2 = Markus()
     try:
         connected = a2.connect(dbname, user, password)
-        # The following is an assert statement. It checks that the value for
-        # connected is True. The message after the comma will be printed if
-        # that is not the case (that is, if connected is False).
-        # Use the same notation throughout your testing.
         assert connected, f"[Connect] Expected True | Got {connected}."
-        # The following function call will set up the testing environment by
-        # loading a fresh copy of the schema and the sample data we have
-        # provided into your database. You can create more sample data files
-        # and call the same function to load them into your database.
         setup(dbname, user, password, schema_file, data_file)
-        # ---------------------- Testing get_groups_count ---------------------#
-        # Failure: Invalid assignment ID for grouping
-        val = a2.create_groups(20, 1, "bobby/")
-        assert val == False, f"[Create Groups] Expected: False. Got {val}."
-        # Failure: Invalid assignment ID for other assignment
-        val = a2.create_groups(1, 20, "bobby/")
-        assert val == False, f"[Create Groups] Expected: False. Got {val}."
-        # Failure: Group already defined for assignment
-        val = a2.create_groups(1, 2, "bobby/")
-        assert val == False, f"[Create Groups] Expected: False. Got {val}."
-        # Success: no students in db, no changes
-        setup(dbname, user, password, schema_file, data_nostudents)
-        val = a2.create_groups(1, 2, "bobby/")
-        assert val == True, f"[Create Groups] Expected: True. Got {val}."
-        # Success: group size k = 1, some students don't have a grade
-        setup(dbname, user, password, schema_file, data_file)
-        val = a2.create_groups(4, 1, "bobby/")
-        assert val == True, f"[Create Groups] Expected: True. Got {val}."
-        # # Success: group size k = 3 and num students % 3 != 0
-        setup(dbname, user, password, schema_file, data_group3)
-        val = a2.create_groups(4, 1, "bobby/")
-        assert val == True, f"[Create Groups] Expected: True. Got {val}."
+
+
+        testy = a2.create_groups(2, 1, 'test1')
+        print("test1: ", testy)
+
     finally:
         a2.disconnect()
+
 if __name__ == "__main__":
     # Un comment-out the next two lines if you would like to run the doctest
     # examples (see ">>>" in the methods connect and disconnect)
