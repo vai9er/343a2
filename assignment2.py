@@ -290,9 +290,7 @@ class Markus:
             # raise ex
             return -1
 
-    def create_groups(
-        self, assignment_to_group: int, other_assignment: int, repo_prefix: str
-    ) -> bool:
+    def create_groups(self, assignment_to_group: int, other_assignment: int, repo_prefix: str) -> bool:
         """Create student groups for <assignment_to_group> based on their
         performance in <other_assignment>. The repository URL of all created
         groups will start with <repo_prefix>.
@@ -339,21 +337,96 @@ class Markus:
 
         Precondition: The group_min for <assignment_to_group> is 1.
         """
-        sql_check_assignment = """
+
+        #given helper
+        sql_check_assignments_exist = """
+        SELECT EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s),
+            EXISTS(SELECT 1 FROM Assignment WHERE assignment_id = %s)
+        """
+
+        #given helper
+        sql_check_no_groups = """
+        SELECT 1 FROM AssignmentGroup WHERE assignment_id = %s
+        """
+
+        sql_get_group_max = """
         SELECT group_max FROM Assignment WHERE assignment_id = %s
         """
 
-        sql_check_no_groups = """
-        SELECT * FROM AssignmentGroup WHERE assignment_id = %s  LIMIT 1
+        sql_get_students_and_grades = """
+        SELECT MarkusUser.username
+        FROM MarkusUser
+        JOIN Membership ON MarkusUser.username = Membership.username
+        LEFT JOIN Result ON Membership.group_id = Result.group_id
+        WHERE Membership.assignment_id = %s AND MarkusUser.type = 'student'
+        ORDER BY Result.mark DESC NULLS LAST, MarkusUser.username ASC
         """
+
+        sql_insert_group = """
+        INSERT INTO AssignmentGroup (assignment_id, repo)
+        VALUES (%s, %s) RETURNING group_id
+        """
+
+        sql_insert_membership = """
+        INSERT INTO Membership (username, group_id)
+        VALUES (%s, %s)
+        """
+
         try:
-            # TODO: Implement this method
-            pass
+            with self.connection.cursor() as cursor:
+                # Check if both assignments exist
+                cursor.execute(sql_check_assignments_exist, (assignment_to_group, other_assignment))
+                assignment_exists, other_assignment_exists = cursor.fetchone()
+                if not (assignment_exists and other_assignment_exists):
+                    return False
+
+                # Check if there are no groups defined for assignment_to_group
+                cursor.execute(sql_check_no_groups, (assignment_to_group,))
+                if cursor.fetchone():
+                    return False
+
+                # Get the maximum group size for assignment_to_group
+                cursor.execute(sql_get_group_max, (assignment_to_group,))
+                group_max = cursor.fetchone()[0]
+
+                # Get students and their grades
+                cursor.execute(sql_get_students_and_grades, (other_assignment,))
+                students = cursor.fetchall()
+
+                # If there are no students, return True as it is considered successful
+                if not students:
+                    return True
+
+                # Start transaction
+                self.connection.autocommit = False
+
+                # Create groups
+                for i in range(0, len(students), group_max):
+                    group_students = students[i:i + group_max]
+                    # Insert group without repo URL first
+                    cursor.execute(sql_insert_group, (assignment_to_group, ''))
+                    group_id = cursor.fetchone()[0]
+
+                    # Update repo URL with the new group_id
+                    repo_url = f"{repo_prefix}/group_{group_id}"
+                    cursor.execute("UPDATE AssignmentGroup SET repo = %s WHERE group_id = %s", (repo_url, group_id))
+
+                    # Insert members into group
+                    for student in group_students:
+                        cursor.execute(sql_insert_membership, (student[0], group_id))
+
+                # Commit transaction
+                self.connection.commit()
+                self.connection.autocommit = True
+                return True
+
         except pg.Error as ex:
-            # You may find it helpful to uncomment this line while debugging,
-            # as it will show you all the details of the error that occurred:
-            # raise ex
-            return
+            # If an error occurs, rollback the transaction
+            self.connection.rollback()
+            self.connection.autocommit = True
+            # Uncomment the following line to debug
+            # print(ex)
+            return False
 
 
 def setup(
