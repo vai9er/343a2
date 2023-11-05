@@ -352,13 +352,13 @@ class Markus:
                 # If there are no students, return True as it is considered successful
                 if not students:
                     return True
-
+                print("test 2")
                 # Start transaction
                 self.connection.autocommit = False
-
+                print("test 3")
                 # Create groups
                 for i in range(0, len(students), group_max):
-                    print("test2")
+                    print("test22")
                     group_students = students[i:i + group_max]
                     # Insert group without repo URL first
                     cursor.execute(sql_insert_group, (assignment_to_group, ''))
