@@ -530,8 +530,8 @@ def test_remove_student() -> None:
 def test_create_groups() -> None:
     """Test method create_groups.
     """
-    dbname = "csc343h-vainerga”
-    user = “vainerga”
+    dbname = "csc343h-vainerga"
+    user = "vainerga"
     password = ""
     # The following uses the relative paths to the schema file and the data file
     # we have provided. For your own tests, you will want to make your own data
