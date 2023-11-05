@@ -528,25 +528,55 @@ def test_remove_student() -> None:
         a2.disconnect()
 
 def test_create_groups() -> None:
-    dbname = "csc343h-xiongkev"
-    user = "xiongkev"
+    """Test method create_groups.
+    """
+    dbname = "csc343h-vainerga”
+    user = “vainerga”
     password = ""
+    # The following uses the relative paths to the schema file and the data file
+    # we have provided. For your own tests, you will want to make your own data
+    # files to use for testing.
     schema_file = "schema.ddl"
-    data_file = "dataRstudent.sql"
-
+    data_file = "data.sql"
+    data_nostudents = "data-nostudents.sql"
+    data_group3 = "data-group3.sql"
     a2 = Markus()
     try:
         connected = a2.connect(dbname, user, password)
+        # The following is an assert statement. It checks that the value for
+        # connected is True. The message after the comma will be printed if
+        # that is not the case (that is, if connected is False).
+        # Use the same notation throughout your testing.
         assert connected, f"[Connect] Expected True | Got {connected}."
+        # The following function call will set up the testing environment by
+        # loading a fresh copy of the schema and the sample data we have
+        # provided into your database. You can create more sample data files
+        # and call the same function to load them into your database.
         setup(dbname, user, password, schema_file, data_file)
-
-
-        testy = a2.create_groups(2, 1, 'test1')
-        print("test1: ", testy)
-
+        # ---------------------- Testing get_groups_count ---------------------#
+        # Failure: Invalid assignment ID for grouping
+        val = a2.create_groups(20, 1, "bobby/")
+        assert val == False, f"[Create Groups] Expected: False. Got {val}."
+        # Failure: Invalid assignment ID for other assignment
+        val = a2.create_groups(1, 20, "bobby/")
+        assert val == False, f"[Create Groups] Expected: False. Got {val}."
+        # Failure: Group already defined for assignment
+        val = a2.create_groups(1, 2, "bobby/")
+        assert val == False, f"[Create Groups] Expected: False. Got {val}."
+        # Success: no students in db, no changes
+        setup(dbname, user, password, schema_file, data_nostudents)
+        val = a2.create_groups(1, 2, "bobby/")
+        assert val == True, f"[Create Groups] Expected: True. Got {val}."
+        # Success: group size k = 1, some students don't have a grade
+        setup(dbname, user, password, schema_file, data_file)
+        val = a2.create_groups(4, 1, "bobby/")
+        assert val == True, f"[Create Groups] Expected: True. Got {val}."
+        # # Success: group size k = 3 and num students % 3 != 0
+        setup(dbname, user, password, schema_file, data_group3)
+        val = a2.create_groups(4, 1, "bobby/")
+        assert val == True, f"[Create Groups] Expected: True. Got {val}."
     finally:
         a2.disconnect()
-
 if __name__ == "__main__":
     # Un comment-out the next two lines if you would like to run the doctest
     # examples (see ">>>" in the methods connect and disconnect)
