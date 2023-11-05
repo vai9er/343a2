@@ -291,52 +291,6 @@ class Markus:
             return -1
 
     def create_groups(self, assignment_to_group: int, other_assignment: int, repo_prefix: str) -> bool:
-        """Create student groups for <assignment_to_group> based on their
-        performance in <other_assignment>. The repository URL of all created
-        groups will start with <repo_prefix>.
-
-        Find all students who are defined in the Users table and put each of
-        them into a group for <assignment_to_group>.
-        Suppose there are n. Each group will be of the maximum size allowed for
-        the assignment (call that k), except for possibly one group of smaller
-        size if n is not divisible by k.
-
-        Note: k may be as low as 1.
-
-        The choice of which students to put together is based on their grades on
-        <other_assignment>, as recorded in table Result. (It makes no difference
-        whether the grades were released or not.)  Starting from the
-        highest grade on <other_assignment>, the top k students go into one
-        group, then the next k students go into the next, and so on. The last
-        n % k students form a smaller group.
-
-        Students with no grade recorded for <other_assignment> come at the
-        bottom of the list, after students who received zero. When there is a
-        tie for grade (or non-grade) on <other_assignment>, take students in
-        order by username, using alphabetical order from A to Z.
-
-        When a group is created, its group ID is generated automatically because
-        the group_id attribute of table AssignmentGroup uses the next value in
-        a SQL SEQUENCE. The value of a group's attribute repo is
-            repoPrefix + "/group_" + group_id
-
-        Return True if the operation is successful, and False Otherwise.
-        I.e., do NOT throw an error. If the operation is unsuccessful, no
-        changes should be made to the database.
-
-        The operation is considered unsuccessful if one or more of the following
-        is True:
-            * There is no assignment with ID <assignment_to_group> or
-              no assignment with ID <other_assignment>.
-            * One or more group(s) have already been defined for
-              <assignment_to_group>.
-
-        Note: If there are no students in the db, define no groups for
-        <assignment_to_group>) and return True; the operation is considered
-        successful. No changes should be made to the db in this case.
-
-        Precondition: The group_min for <assignment_to_group> is 1.
-        """
 
         #given helper
         sql_check_assignments_exist = """
@@ -430,6 +384,7 @@ class Markus:
             self.connection.autocommit = True
             # Uncomment the following line to debug
             # print(ex)
+            print("BRUH")
             return False
 
 
