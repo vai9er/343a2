@@ -329,6 +329,7 @@ class Markus:
 
         try:
             with self.connection.cursor() as cursor:
+                print("test1")
                 # Check if both assignments exist
                 cursor.execute(sql_check_assignments_exist, (assignment_to_group, other_assignment))
                 assignment_exists, other_assignment_exists = cursor.fetchone()
@@ -357,6 +358,7 @@ class Markus:
 
                 # Create groups
                 for i in range(0, len(students), group_max):
+                    print("test2")
                     group_students = students[i:i + group_max]
                     # Insert group without repo URL first
                     cursor.execute(sql_insert_group, (assignment_to_group, ''))
@@ -366,12 +368,16 @@ class Markus:
                     # Update repo URL with the new group_id
                     repo_url = f"{repo_prefix}/group_{group_id}"
                     cursor.execute("UPDATE AssignmentGroup SET repo = %s WHERE group_id = %s", (repo_url, group_id))
+                    print("before commit")
                     self.connection.commit()
+                    print("after commit")
 
                     # Insert members into group
                     for student in group_students:
+                        print("before insertion")
                         cursor.execute(sql_insert_membership, (student[0], group_id))
                         self.connection.commit()
+                        print("after insertion")
 
                 # Commit transaction
                 self.connection.commit()
