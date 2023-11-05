@@ -137,7 +137,7 @@ class Markus:
                 else: return False
         except pg.Error as ex:
             return None
-        
+
     def checkGrader(self, grader: str) -> bool:
         try:
             with self.connection.cursor() as cur:
@@ -148,7 +148,7 @@ class Markus:
                 else: return False
         except pg.Error as ex:
             return None
-    
+
     def checkGraderAssigned(self, group: int) -> bool:
         # returns true if a grader is assigned
         # returns false if grader is not assigned
@@ -215,7 +215,7 @@ class Markus:
                 else: return False
         except pg.Error as ex:
             return None
-    
+
     def checkuserpartofgroup(self, username: str) -> bool:
         # returns true if a username is part of group
         # returns false if username is not part of a group
@@ -261,9 +261,9 @@ class Markus:
                         # if username is valid and part of group(s) return number of deletions
                         find_query = "Select username, Membership.group_id From Assignment JOIN AssignmentGroup on Assignment.assignment_id = AssignmentGroup.assignment_id JOIN Membership on Membership.group_id = AssignmentGroup.group_id where ((Assignment.due_date - %s) > INTERVAL '1' day) and username = %s"
                         cur.execute(find_query, (date, username))
-                        results = cur.fetchall() 
+                        results = cur.fetchall()
                         num_deleted = 0
-                        
+
                         for row in results:
                             username, group_id = row
                             delete_query = "DELETE FROM Membership WHERE Membership.username = %s AND Membership.group_id = %s"
@@ -275,7 +275,7 @@ class Markus:
                         #delete any AssigmentGroup that has no membership
                         empty_groups = "Select AssignmentGroup.group_id from AssignmentGroup WHERE AssignmentGroup.group_id NOT IN (Select group_id from Membership)"
                         cur.execute(empty_groups)
-                        no_members = cur.fetchall() 
+                        no_members = cur.fetchall()
                         for row in no_members:
                             group_id = row
                             print(group_id)
@@ -322,13 +322,13 @@ class Markus:
 
             # Get all the students in order of grades and alphabetical username
             sql_students_ordered = """
-            SELECT MU.username
-            FROM MarkusUser MU
-            LEFT JOIN Membership M ON MU.username = M.username
-            LEFT JOIN AssignmentGroup AG ON M.group_id = AG.group_id
-            LEFT JOIN Result R ON AG.group_id = R.group_id AND AG.assignment_id = %s
-            WHERE MU.type = 'student'
-            ORDER BY R.mark DESC NULLS LAST, MU.username;
+            SELECT mu.username
+            FROM MarkusUser mu
+            LEFT JOIN Membership m ON mu.username = m.username
+            LEFT JOIN AssignmentGroup ag ON m.group_id = ag.group_id
+            LEFT JOIN Result res ON ag.group_id = res.group_id
+            WHERE mu.type = 'student' AND ag.assignment_id = %s
+            ORDER BY res.mark DESC NULLS LAST, mu.username;
             """
             cursor.execute(sql_students_ordered, (other_assignment,))
             students = cursor.fetchall()
@@ -452,7 +452,7 @@ def test_get_groups_count() -> None:
         # TODO: Test more methods here, or better yet, make more testing
         # functions, with each testing a different method, and call them from
         # the main block below.
-    
+
         # ---------------------- Testing get_groups_count ---------------------#
 
         # Invalid assignment ID
